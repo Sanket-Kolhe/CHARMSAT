@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charmsat.local/schemas/rule-set.schema.json",
+  "title": "CHARMSAT rule set",
+  "description": "Every rule the engine, the validator and the independent checker honour lives in this document. Any subset may be provided; missing keys fall back to defaults. Unknown keys are rejected so typos never silently disable a rule.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string" },
+
+    "ab_segregation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "level": { "enum": ["cioc", "cabinet", "baseplate"] },
+        "description": { "type": "string" }
+      }
+    },
+
+    "cable_contiguity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "allow_boundary_crossing_small": { "type": "boolean" },
+        "strict_pair_ordering": { "type": "boolean" },
+        "description": { "type": "string" }
+      }
+    },
+
+    "group_cohesion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "target_level": { "enum": ["cabinet", "cioc"] },
+        "soft_sequence_weight": { "type": "integer", "minimum": 0 },
+        "description": { "type": "string" }
+      }
+    },
+
+    "spare_capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "spare_percentage": { "type": "number", "minimum": 0, "maximum": 100 },
+        "description": { "type": "string" }
+      }
+    },
+
+    "isolated_charm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "isolated_subtypes": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" }
+      }
+    },
+
+    "signal_type_lookup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "mapping": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["charm", "terminal_block"],
+            "properties": {
+              "charm": { "type": "string" },
+              "terminal_block": { "type": "string" }
+            }
+          }
+        },
+        "description": { "type": "string" }
+      }
+    },
+
+    "naming_patterns": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "cabinet": { "type": "string" },
+        "cioc": { "type": "string" },
+        "baseplate": { "type": "string" },
+        "charm": { "type": "string" },
+        "area": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+
+    "hardware_table": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["io_type", "charm", "tb"],
+        "properties": {
+          "io_type": { "type": "string" },
+          "subtype": { "type": "string" },
+          "charm": { "type": "string" },
+          "tb": { "type": "string" }
+        }
+      }
+    },
+
+    "custom_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "relation", "attribute", "level"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "relation": {
+            "description": "different = never share a unit with a different value; same = same value stays together; at_most_k = at most k distinct values per unit.",
+            "enum": ["same", "different", "at_most_k"]
+          },
+          "attribute": { "enum": ["group", "seg", "io_type", "subtype"] },
+          "level": { "enum": ["cabinet", "cioc", "baseplate"] },
+          "k_value": { "type": "integer", "minimum": 1 },
+          "classes": {
+            "description": "For relation 'different': the values that must never share a unit. Omit for ALL_DISTINCT (any two different values are separated).",
+            "anyOf": [
+              { "type": "array", "items": { "type": "string" } },
+              { "type": "null" }
+            ]
+          },
+          "description": { "type": "string" }
+        }
+      }
+    }
+  }
+}

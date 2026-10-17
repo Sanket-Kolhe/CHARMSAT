@@ -1,0 +1,24 @@
+template: synthetic
+allocation_sheet: Allocation
+header_row: 2
+first_data_row: 3
+columns:
+  tag: A
+  cable: B
+  pair: C
+  cabinet: D
+  cioc: E
+  baseplate: F
+  slot: G
+  charm: H
+  tb: I
+  cabinet_name: J
+  cioc_name: K
+  baseplate_name: L
+  io_type: M
+  subtype: N
+  group: O
+  seg: P
+summary_cells: {}
+extra_sheets: true
+allow_formula_overwrite: []

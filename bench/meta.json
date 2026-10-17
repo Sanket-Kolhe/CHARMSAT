@@ -1,0 +1,9 @@
+{
+ "machine": "Unknown_7a:a1:a9:90:8d:49",
+ "platform": "macOS-26.6.2-arm64-arm-64bit",
+ "cpu_count": 8,
+ "python": "3.10.13",
+ "ortools": "9.15.6755",
+ "commit": "4052034",
+ "date": "2026-10-17T14:51:18.432574+00:00"
+}

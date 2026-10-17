@@ -28,6 +28,10 @@ htmlcov/
 *.log
 .system_generated/
 
+# CHARMSAT: never commit customer/organiser IO data or uploaded files
+data/organiser/
+data/uploads/
+
 # OS metadata
 .DS_Store
 Thumbs.db

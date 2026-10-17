@@ -1,6 +1,7 @@
 import React from 'react';
 import { KPIHeader } from '../components/KPIHeader';
 import { CabinetGrid } from '../components/CabinetGrid';
+import { WhatIfPanel } from '../components/WhatIfPanel';
 import { AllocResult } from '../api';
 import { Grid, Sparkles, RefreshCw } from 'lucide-react';
 
@@ -43,6 +44,9 @@ export const ScreenAllocationDashboard: React.FC<AllocationDashboardProps> = ({
     <div className="space-y-4">
       {/* KPI Cards Header */}
       <KPIHeader allocResult={allocResult} />
+
+      {/* What-if scoring (W1) */}
+      <WhatIfPanel />
 
       {/* Main Cabinet Visualizer Grid */}
       <CabinetGrid allocations={allocResult.allocations} />

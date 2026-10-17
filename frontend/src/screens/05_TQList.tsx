@@ -156,6 +156,11 @@ export const ScreenTQList: React.FC<TQListProps> = ({
                           </div>
                           <div className="p-2.5 rounded bg-[#09150E] border border-[#163120] text-white">
                             {tq.items.join(', ') || 'Global'}
+                            {tq.rows && tq.rows.length > 0 && (
+                              <div className="text-[10px] text-[#6B8E78] mt-1">
+                                Excel rows: {tq.rows.join(', ')}
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div>
@@ -163,19 +168,21 @@ export const ScreenTQList: React.FC<TQListProps> = ({
                             MINIMAL CONFLICTING RULE SET (MUS):
                           </div>
                           <div className="p-2.5 rounded bg-[#09150E] border border-[#163120] text-amber-300 font-bold">
-                            {tq.rule_ids.join('  ⚡  ') || 'RULE-01 vs RULE-02'}
+                            {((tq.mus && tq.mus.length ? tq.mus : tq.rule_ids) || []).join('  ⚡  ') ||
+                              'RULE-01 vs RULE-02'}
                           </div>
                         </div>
                       </div>
 
                       <div className="p-3 rounded bg-[#0D2114] border border-[#1E4D2C] text-[#A7C7B3] text-[11px] leading-relaxed">
                         <span className="text-[#5CFF7A] font-bold mr-1">Engineering Action:</span>
-                        {tq.kind === 'rule_conflict' &&
-                          "Customer clarification required: Multi-pair field cable CBL-207 carries both Train A and Train B pairs. Split pairs into separate single-train multicores or relax CIOC A/B segregation."}
-                        {tq.kind === 'data' &&
-                          "Engineering input needed: Tag records contain invalid or missing IO module specs. Update customer instrument list before physical marshalling."}
-                        {tq.kind === 'capacity' &&
-                          "Cabinet margin breached: Group signal count exceeds single-cabinet spare capacity. Allocate additional cabinet or subdivide process group."}
+                        {tq.options && tq.options.length > 0
+                          ? tq.options.join(' ')
+                          : tq.kind === 'rule_conflict'
+                          ? "Customer clarification required: split the affected pairs into separate single-train multicores or relax the segregation level."
+                          : tq.kind === 'capacity'
+                          ? "Cabinet margin breached: group signal count exceeds single-cabinet spare capacity. Allocate an additional cabinet or subdivide the process group."
+                          : "Engineering input needed: tag records contain invalid or missing IO module specs. Update the customer instrument list before physical marshalling."}
                       </div>
                     </div>
                   )}

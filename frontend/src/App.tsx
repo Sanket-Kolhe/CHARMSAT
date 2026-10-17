@@ -72,6 +72,16 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleUploadRevB = async (file: File) => {
+    setIsSolving(true);
+    try {
+      const res = await API.reviseRevB(file);
+      setAllocResultB(res.rev_b_result);
+    } finally {
+      setIsSolving(false);
+    }
+  };
+
   const handleLoadAdversarial = async () => {
     setIsSolving(true);
     try {
@@ -187,6 +197,7 @@ export const App: React.FC = () => {
               <ScreenRevisionDiff
                 allocResultB={allocResultB}
                 onGenerateRevB={handleGenerateRevB}
+                onUploadRevB={handleUploadRevB}
                 isLoading={isSolving}
               />
             )}

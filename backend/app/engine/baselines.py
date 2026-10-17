@@ -1,16 +1,42 @@
 from typing import List, Dict, Set, Optional, Tuple
 from collections import defaultdict
 import time
-from app.models.domain import Signal, Cable, AllocatedSlot, AllocResult
+from app.models.domain import Signal, Cable, AllocatedSlot, AllocResult, TQ
 from app.models.rules import RuleSetConfig
 from app.engine.naming import NameGenerator
-from app.engine.checker import IndependentChecker
+from app.engine.hardware import HW_TABLE, hardware_for
+from app.engine.solve.bridge import rules_to_ref
+
+
+def _charm_and_tb(io_type, subtype):
+    """Hardware from the data table; TBD placeholder when nothing matches."""
+    charm_name, tb_name = hardware_for(io_type, subtype)
+    if charm_name is None:
+        return "TBD - see TQ", "TBD - see TQ"
+    return charm_name, tb_name
+
+
+def _verify(allocations, signals, cable_sizes, rules):
+    """Independent check via backend/checker on row dicts (S2-7: honest)."""
+    import checker.check as _chk
+    from app.engine.io.template_writer import rows_from_allocations
+    io_rows = [{"tag": s.tag, "io_type": s.io_type, "subtype": s.subtype or "",
+                "cable": s.cable, "pair": s.pair, "group": s.group or "",
+                "seg": s.seg or ""} for s in signals]
+    rows = rows_from_allocations(allocations)
+    ref = rules_to_ref(rules)
+    return _chk.check(io_rows, rows, ref, ref.get("hardware_table") or HW_TABLE, cable_sizes)
+
+
+def _to_violations(found):
+    from app.models.domain import Violation
+    return [Violation(rule_id=v["rule"], rule_name=v["rule"], message=v["message"])
+            for v in found if v["status"] == "violation"]
 
 class BaselineEngine:
     def __init__(self, rules: RuleSetConfig):
         self.rules = rules
         self.name_gen = NameGenerator(rules.naming_patterns)
-        self.checker = IndependentChecker(rules)
 
     def run_b0_file_order(self, signals: List[Signal], cable_sizes: Dict[str, int]) -> AllocResult:
         """
@@ -25,19 +51,11 @@ class BaselineEngine:
         bp = 0
         slot = 0
 
-        charm_lookup = self.rules.signal_type_lookup.mapping
-        isolated_subtypes = set(self.rules.isolated_charm.isolated_subtypes)
-
         for s in signals:
             cab_name, cioc_name, bp_name = self.name_gen.get_names(cab, cioc, bp)
-            
-            # Lookup charm
-            key = s.io_type
-            if s.io_type == "DO" and s.subtype in isolated_subtypes:
-                key = "DO_ISOLATED"
-            hw = charm_lookup.get(key)
-            charm_name = hw.charm if hw else f"{s.io_type} CHARM"
-            tb_name = hw.terminal_block if hw else "Standard TB"
+
+            # Lookup charm from the data table (P1-4)
+            charm_name, tb_name = _charm_and_tb(s.io_type, s.subtype)
 
             alloc = AllocatedSlot(
                 tag=s.tag,
@@ -74,7 +92,8 @@ class BaselineEngine:
                         cab += 1
 
         cabinets_used = cab + 1 if allocations else 0
-        violations = self.checker.verify(allocations, signals)
+        found = _verify(allocations, signals, cable_sizes, self.rules)
+        violations = _to_violations(found)
         runtime = time.time() - start_time
 
         lower_bound = max(1, (len(signals) + 344) // 345)
@@ -125,8 +144,6 @@ class BaselineEngine:
         group_cab_map: Dict[str, int] = {}
 
         allocations: List[AllocatedSlot] = []
-        charm_lookup = self.rules.signal_type_lookup.mapping
-        isolated_subtypes = set(self.rules.isolated_charm.isolated_subtypes)
 
         for cbl in cable_list:
             cbl_seg = list(cbl.segs)[0] if cbl.segs else None
@@ -179,12 +196,7 @@ class BaselineEngine:
 
                             s = sig_map.get(p)
                             if s:
-                                key = s.io_type
-                                if s.io_type == "DO" and s.subtype in isolated_subtypes:
-                                    key = "DO_ISOLATED"
-                                hw = charm_lookup.get(key)
-                                charm_name = hw.charm if hw else f"{s.io_type} CHARM"
-                                tb_name = hw.terminal_block if hw else "Standard TB"
+                                charm_name, tb_name = _charm_and_tb(s.io_type, s.subtype)
 
                                 alloc = AllocatedSlot(
                                     tag=s.tag,
@@ -234,18 +246,37 @@ class BaselineEngine:
                     break
 
         cabinets_used = max([s.cabinet for s in allocations], default=-1) + 1
-        violations = self.checker.verify(allocations, signals)
+        # S2-7: cables B1 could not place are reported, never silently dropped.
+        placed_cables = {s.cable for s in allocations if not s.is_spare}
+        unplaced = [c for c in cable_list if c.id not in placed_cables]
+        unplaced_tags = [s.tag for c in unplaced for s in c.signals]
+        tqs = []
+        if unplaced:
+            tqs.append(TQ(id="TQ-B1-UNPLACED", kind="capacity",
+                          items=sorted(unplaced_tags), tags=sorted(unplaced_tags),
+                          rows=[], rule_ids=["R3-CAPACITY"],
+                          message=f"B1 greedy could not place {len(unplaced)} cable(s) "
+                                  f"({len(unplaced_tags)} signals) under the rules; "
+                                  f"cables: {', '.join(c.id for c in unplaced[:5])}"
+                                  f"{'...' if len(unplaced) > 5 else ''}.",
+                          options=["Use the CHARMSAT engine, or relax the spare rule."]))
+        found = _verify(allocations, signals, cable_sizes, self.rules)
+        violations = _to_violations(found)
         runtime = time.time() - start_time
         lower_bound = max(1, (len(signals) + 344) // 345)
+        placed_tags = {s.tag for s in allocations if s.tag}
+        input_tags = {s.tag for s in signals}
+        coverage = round(100.0 * len(placed_tags & input_tags) / max(1, len(input_tags)), 1)
 
         return AllocResult(
-            success=True,
+            success=len(violations) == 0,
             allocations=allocations,
+            tqs=tqs,
             violations=violations,
             cabinets_used=cabinets_used,
             slots_used=len([s for s in allocations if not s.is_spare]),
             total_slots_available=cabinets_used * 384,
-            coverage_pct=100.0,
+            coverage_pct=coverage,
             spare_pct_actual=round(100.0 * (1.0 - len(allocations) / (cabinets_used * 384)), 1) if cabinets_used else 0.0,
             runtime_s=round(runtime, 3),
             lower_bound_cabinets=lower_bound,

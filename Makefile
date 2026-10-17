@@ -1,4 +1,4 @@
-.PHONY: run bench test install
+.PHONY: run bench test install integrity demo-check
 
 # Install all backend and frontend dependencies
 install:
@@ -9,10 +9,18 @@ install:
 run:
 	python run_server.py
 
-# Run standalone benchmark suite and generate measurements
+# One-command benchmark: measures everything, writes bench/results.*
 bench:
-	python run_bench.py
+	python scripts/bench.py
 
-# Run unit tests and hypothesis property verification
+# End-to-end demo check: upload -> allocate -> export -> check (exit 0 = demo works)
+demo-check:
+	python scripts/demo_check.py
+
+# Run the full pytest suite (incl. Hypothesis property tests)
 test:
-	python -m pytest backend/app/tests/test_unit.py -v
+	python -m pytest backend/app/tests/ -q
+
+# Integrity guard: fail if any fabricated metric literal is (re-)introduced
+integrity:
+	python -m pytest backend/app/tests/test_integrity.py -v

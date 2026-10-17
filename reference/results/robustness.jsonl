@@ -1,0 +1,3 @@
+{"random_variants": 40, "failures": 0, "examples": [], "min_coverage": 100.0, "cabinets_eq_lb": 39, "wall_s": 13.6}
+{"adversarial": {"ok": true, "violations": 0, "waived_by_tq": 1, "first": [], "coverage": 100.0, "cabinets": 5, "lb": 5, "tqs": 5}}
+{"new_rule": {"without_rule": {"ok": true, "violations": 0, "waived_by_tq": 0, "first": [], "coverage": 100.0, "cabinets": 6, "lb": 6, "tqs": 0}, "with_rule": {"ok": true, "violations": 0, "waived_by_tq": 0, "first": [], "coverage": 100.0, "cabinets": 6, "lb": 6, "tqs": 0}, "old_allocation_checked_against_new_rule_violations": 3}}

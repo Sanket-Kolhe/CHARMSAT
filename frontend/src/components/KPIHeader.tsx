@@ -104,7 +104,7 @@ export const KPIHeader: React.FC<KPIHeaderProps> = ({
           </span>
         </div>
         <div className="text-[10px] text-[#4ADE80] font-mono mt-1">
-          Efficiency: 1.00x Optimal
+          Efficiency: {lb > 0 ? (cabinets / lb).toFixed(2) : '—'}x{lb > 0 && cabinets === lb ? ' Optimal' : ''}
         </div>
       </div>
 

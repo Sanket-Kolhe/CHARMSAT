@@ -77,6 +77,7 @@ class SyntheticGenerator:
         total_signals_target = n_signals
         current_signal_count = 0
         cable_seq = 100
+        tag_no = 1000  # monotonic counter: tags are unique by construction (P1-5)
 
         while current_signal_count < total_signals_target:
             cable_id = f"CBL-{cable_seq}"
@@ -105,10 +106,10 @@ class SyntheticGenerator:
                     k=1
                 )[0]
 
-                # Prefix & Tag
+                # Prefix & Tag (counter guarantees uniqueness; P1-5)
                 prefix = self.rng.choice(TAG_PREFIXES[io_type])
-                tag_num = self.rng.randint(1000, 9999)
-                tag = f"{prefix}-{tag_num}"
+                tag_no += 1
+                tag = f"{prefix}-{tag_no}"
 
                 # Subtype
                 subtype = None
@@ -117,7 +118,7 @@ class SyntheticGenerator:
                     if sub:
                         subtype = sub
                         if sub in ["SOV", "beacon", "horn", "ISOLATED"]:
-                            tag = f"{sub[:3].upper()}-{tag_num}"
+                            tag = f"{sub[:3].upper()}-{tag_no}"
 
                 sig = Signal(
                     tag=tag,
@@ -188,18 +189,23 @@ class SyntheticGenerator:
         add_pct: float = 0.05,     # 5% added
         del_pct: float = 0.02,     # 2% deleted
         type_change_pct: float = 0.015, # 1.5% type change
-        recable_pct: float = 0.01  # 1% moved to another cable
+        recable_pct: float = 0.0,  # unused: re-cabling a signal to a fresh
+                                   # single-pair `_MOD` cable is dishonest test
+                                   # data (P1-5). Kept for API compatibility.
+        cable_sizes: Optional[Dict[str, int]] = None,
     ) -> Tuple[List[Signal], Dict[str, Any]]:
         """
-        Generates realistic Rev B from Rev A.
-        Returns (rev_b_signals, diff_expected_summary)
+        Generates realistic Rev B from Rev A (mirrors reference/generate_revision).
+        Additions land on FREE (spare) pairs of existing cables when one is
+        available, otherwise on new 6-pair cables. Cable sizes are carried in
+        diff_summary["cable_sizes"] so callers never infer sizes per signal.
+        Returns (rev_b_signals, diff_summary)
         """
         self.rng.seed(self.seed + 100)
         surviving_signals: List[Signal] = []
         deleted_tags = set()
         added_tags = set()
         type_changed_tags = set()
-        recabled_tags = set()
 
         # 1. Deletions
         num_delete = max(1, int(len(rev_a_signals) * del_pct))
@@ -229,44 +235,51 @@ class SyntheticGenerator:
             sig.io_type = new_type
             type_changed_tags.add(sig.tag)
 
-        # 3. Re-cabling
-        num_recables = max(1, int(len(surviving_signals) * recable_pct))
-        recable_indices = self.rng.sample(range(len(surviving_signals)), num_recables)
-        for idx in recable_indices:
-            sig = surviving_signals[idx]
-            sig.cable = f"{sig.cable}_MOD"
-            recabled_tags.add(sig.tag)
+        # 3. Additions on free pairs (size-aware), else new 6-pair cables
+        sizes: Dict[str, int] = dict(cable_sizes or {})
+        for s in surviving_signals:
+            sizes.setdefault(s.cable, 24 if s.pair > 12 else 12 if s.pair > 6 else 6 if s.pair > 2 else 2)
+        used_pairs: Dict[str, set] = {}
+        for s in surviving_signals:
+            used_pairs.setdefault(s.cable, set()).add(s.pair)
+        meta = {s.cable: (s.group, s.seg) for s in surviving_signals}
 
-        # 4. Additions
         num_add = max(1, int(len(rev_a_signals) * add_pct))
-        groups = list({s.group for s in surviving_signals if s.group}) or ["GRP-01_EXP"]
-        cables_existing = list({s.cable for s in surviving_signals})
-        cable_seg_map = {s.cable: s.seg for s in surviving_signals if s.seg}
-        new_cable_seg_map = {}
-        new_cable_group_map = {}
-
+        groups = sorted({s.group for s in surviving_signals if s.group}) or ["GRP-01_EXP"]
         new_signals = []
-        for i in range(num_add):
+        tag_no = 900000
+        new_seq = 1
+        cables_sorted = sorted(used_pairs)
+        attempts = 0
+        while len(new_signals) < num_add and attempts < num_add * 20:
+            attempts += 1
+            tag_no += 1
             io_type = self.rng.choice(["AI", "DI", "DO", "AO"])
             prefix = self.rng.choice(TAG_PREFIXES[io_type])
-            tag = f"{prefix}-9{i:03d}"
-            # Either land on a new cable or attach to existing
-            if self.rng.random() < 0.4 and cables_existing:
-                cable_id = self.rng.choice(cables_existing)
-                pair = self.rng.randint(15, 24)
-                seg = cable_seg_map.get(cable_id, None)
-                matching_sigs = [s for s in surviving_signals if s.cable == cable_id]
-                group = matching_sigs[0].group if matching_sigs else self.rng.choice(groups)
+            tag = f"{prefix}-{tag_no}"
+            if self.rng.random() < 0.6 and cables_sorted:
+                cable_id = self.rng.choice(cables_sorted)
+                free = [p for p in range(1, sizes[cable_id] + 1) if p not in used_pairs[cable_id]]
+                if not free:
+                    continue
+                pair = free[0]
+                group, seg = meta[cable_id]
             else:
-                cable_id = f"CBL-NEW-{i//6 + 1:02d}"
-                pair = (i % 6) + 1
-                if cable_id not in new_cable_seg_map:
-                    new_cable_seg_map[cable_id] = self.rng.choice(["A", "B", None])
-                seg = new_cable_seg_map[cable_id]
-                if cable_id not in new_cable_group_map:
-                    new_cable_group_map[cable_id] = self.rng.choice(groups)
-                group = new_cable_group_map[cable_id]
-            new_sig = Signal(
+                cable_id = f"CBL-NEW-{new_seq:02d}"
+                if cable_id not in sizes:
+                    sizes[cable_id] = 6
+                    meta[cable_id] = (self.rng.choice(groups), self.rng.choice(["A", "B", None]))
+                    used_pairs[cable_id] = set()
+                    cables_sorted.append(cable_id)
+                pair = len(used_pairs[cable_id]) + 1
+                if pair > sizes[cable_id]:
+                    new_seq += 1
+                    continue
+                if pair == sizes[cable_id]:
+                    new_seq += 1
+                group, seg = meta[cable_id]
+            used_pairs[cable_id].add(pair)
+            new_signals.append(Signal(
                 tag=tag,
                 io_type=io_type,
                 subtype=None,
@@ -274,8 +287,7 @@ class SyntheticGenerator:
                 pair=pair,
                 group=group,
                 seg=seg
-            )
-            new_signals.append(new_sig)
+            ))
             added_tags.add(tag)
 
         all_rev_b = surviving_signals + new_signals
@@ -286,11 +298,12 @@ class SyntheticGenerator:
             "added_count": len(added_tags),
             "deleted_count": len(deleted_tags),
             "type_changed_count": len(type_changed_tags),
-            "recabled_count": len(recabled_tags),
+            "recabled_count": 0,
             "added_tags": list(added_tags),
             "deleted_tags": list(deleted_tags),
             "type_changed_tags": list(type_changed_tags),
-            "recabled_tags": list(recabled_tags)
+            "recabled_tags": [],
+            "cable_sizes": sizes,
         }
 
         return all_rev_b, diff_summary

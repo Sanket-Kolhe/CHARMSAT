@@ -1,0 +1,8 @@
+{"N": 1000, "revA_empty_bp": 4, "revA_cabinets": 4, "revB_cabinets": 5, "moves": 43, "unchanged": 980}
+{"N": 1000, "revA_empty_bp": 4, "revA_cabinets": 4, "revB_cabinets": 5, "moves": 43, "unchanged": 980}
+{"N": 1000, "revA_empty_bp": 5, "revA_cabinets": 5, "revB_cabinets": 5, "moves": 0, "unchanged": 980}
+{"N": 1000, "revA_empty_bp": 6, "revA_cabinets": 5, "revB_cabinets": 5, "moves": 0, "unchanged": 980}
+{"N": 5000, "revA_empty_bp": 4, "revA_cabinets": 20, "revB_cabinets": 20, "moves": 358, "unchanged": 4900}
+{"N": 5000, "revA_empty_bp": 4, "revA_cabinets": 20, "revB_cabinets": 20, "moves": 358, "unchanged": 4900}
+{"N": 5000, "revA_empty_bp": 5, "revA_cabinets": 21, "revB_cabinets": 20, "moves": 213, "unchanged": 4900}
+{"N": 5000, "revA_empty_bp": 6, "revA_cabinets": 21, "revB_cabinets": 21, "moves": 0, "unchanged": 4900}

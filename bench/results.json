@@ -1,0 +1,141 @@
+{
+ "meta": {
+  "machine": "Unknown_7a:a1:a9:90:8d:49",
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "cpu_count": 8,
+  "python": "3.10.13",
+  "ortools": "9.15.6755",
+  "commit": "4052034",
+  "date": "2026-10-17T14:51:18.432574+00:00"
+ },
+ "table": [
+  {
+   "N": 1000,
+   "engine": "B0 Greedy (File Order)",
+   "violations": 116,
+   "cabinets": 3,
+   "lb": 4,
+   "gap": -1,
+   "rev_b_moves": null,
+   "rev_b_scratch": null,
+   "runtime_s": 0.01,
+   "verdict": "FAIL (Violates Rules)"
+  },
+  {
+   "N": 1000,
+   "engine": "B1 Greedy (Grouped + A/B)",
+   "violations": 205,
+   "cabinets": 3,
+   "lb": 4,
+   "gap": -1,
+   "rev_b_moves": null,
+   "rev_b_scratch": null,
+   "runtime_s": 0.03,
+   "verdict": "FAIL (Violates Rules)"
+  },
+  {
+   "N": 1000,
+   "engine": "CHARMSAT (3-stage)",
+   "violations": 0,
+   "cabinets": 4,
+   "lb": 4,
+   "gap": 0,
+   "rev_b_moves": 24,
+   "rev_b_scratch": 971,
+   "runtime_s": 0.07,
+   "verdict": "OPTIMAL (matches lower bound)"
+  },
+  {
+   "N": 5000,
+   "engine": "B0 Greedy (File Order)",
+   "violations": 618,
+   "cabinets": 14,
+   "lb": 19,
+   "gap": -5,
+   "rev_b_moves": null,
+   "rev_b_scratch": null,
+   "runtime_s": 0.05,
+   "verdict": "FAIL (Violates Rules)"
+  },
+  {
+   "N": 5000,
+   "engine": "B1 Greedy (Grouped + A/B)",
+   "violations": 1176,
+   "cabinets": 15,
+   "lb": 19,
+   "gap": -4,
+   "rev_b_moves": null,
+   "rev_b_scratch": null,
+   "runtime_s": 0.06,
+   "verdict": "FAIL (Violates Rules)"
+  },
+  {
+   "N": 5000,
+   "engine": "CHARMSAT (3-stage)",
+   "violations": 0,
+   "cabinets": 20,
+   "lb": 19,
+   "gap": 1,
+   "rev_b_moves": 473,
+   "rev_b_scratch": 4641,
+   "runtime_s": 9.22,
+   "verdict": "GAP 1"
+  },
+  {
+   "N": 10000,
+   "engine": "B0 Greedy (File Order)",
+   "violations": 1197,
+   "cabinets": 27,
+   "lb": 38,
+   "gap": -11,
+   "rev_b_moves": null,
+   "rev_b_scratch": null,
+   "runtime_s": 0.11,
+   "verdict": "FAIL (Violates Rules)"
+  },
+  {
+   "N": 10000,
+   "engine": "B1 Greedy (Grouped + A/B)",
+   "violations": 2498,
+   "cabinets": 28,
+   "lb": 38,
+   "gap": -10,
+   "rev_b_moves": null,
+   "rev_b_scratch": null,
+   "runtime_s": 0.15,
+   "verdict": "FAIL (Violates Rules)"
+  },
+  {
+   "N": 10000,
+   "engine": "CHARMSAT (3-stage)",
+   "violations": 0,
+   "cabinets": 39,
+   "lb": 38,
+   "gap": 1,
+   "rev_b_moves": 1141,
+   "rev_b_scratch": 8972,
+   "runtime_s": 8.53,
+   "verdict": "GAP 1"
+  }
+ ],
+ "chart": [
+  {
+   "signals": 1000,
+   "b0": 0.01,
+   "b1": 0.03,
+   "charmsat": 0.07
+  },
+  {
+   "signals": 5000,
+   "b0": 0.05,
+   "b1": 0.06,
+   "charmsat": 9.22
+  },
+  {
+   "signals": 10000,
+   "b0": 0.11,
+   "b1": 0.15,
+   "charmsat": 8.53
+  }
+ ]
+}

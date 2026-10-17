@@ -1,20 +1,24 @@
-import React, { useState } from 'react';
-import { GitCompare, RefreshCw, AlertTriangle, ArrowRight, CheckCircle2, ShieldCheck } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { GitCompare, RefreshCw, AlertTriangle, ArrowRight, CheckCircle2, ShieldCheck, UploadCloud } from 'lucide-react';
 import { API, AllocResult, RevisionSummary } from '../api';
 import { CabinetGrid } from '../components/CabinetGrid';
 
 interface RevisionDiffProps {
   allocResultB: AllocResult | null;
   onGenerateRevB: () => void;
+  onUploadRevB: (file: File) => Promise<void>;
   isLoading: boolean;
 }
 
 export const ScreenRevisionDiff: React.FC<RevisionDiffProps> = ({
   allocResultB,
   onGenerateRevB,
+  onUploadRevB,
   isLoading
 }) => {
   const revSummary: RevisionSummary | null = allocResultB?.rev_summary || null;
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Moved tags set for highlighting in CabinetGrid
   const movedTagsSet = React.useMemo(() => {
@@ -36,6 +40,33 @@ export const ScreenRevisionDiff: React.FC<RevisionDiffProps> = ({
           </p>
         </div>
 
+        <div className="flex items-center gap-3">
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xlsx,.xls,.xlsm,.csv"
+          className="hidden"
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (!f) return;
+            setUploadError(null);
+            try {
+              await onUploadRevB(f);
+            } catch (err: any) {
+              setUploadError(err.message || 'Revise failed');
+            }
+          }}
+        />
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={isLoading}
+          className="px-5 py-2.5 rounded-lg bg-[#0E2A18] hover:bg-[#153825] border border-[#38BDF8] text-xs font-mono font-bold text-[#7DD3FC] flex items-center gap-2 transition-all"
+        >
+          <UploadCloud className="w-3.5 h-3.5" />
+          <span>UPLOAD REV B & REVISE</span>
+        </button>
+
         <button
           onClick={onGenerateRevB}
           disabled={isLoading}
@@ -44,6 +75,10 @@ export const ScreenRevisionDiff: React.FC<RevisionDiffProps> = ({
           <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
           <span>GENERATE & SOLVE REV B</span>
         </button>
+        </div>
+        {uploadError && (
+          <div className="text-[11px] font-mono text-red-400 mt-2">{uploadError}</div>
+        )}
       </div>
 
       {/* Diff Summary Cards */}
@@ -51,28 +86,28 @@ export const ScreenRevisionDiff: React.FC<RevisionDiffProps> = ({
         <div className="bg-[#0B1710] border border-[#1E3A2B] rounded-xl p-3.5 flex flex-col justify-between">
           <span className="text-[10px] font-mono text-[#6B8E78]">ADDED SIGNALS</span>
           <span className="text-2xl font-mono font-bold text-[#4ADE80] mt-1">
-            +{revSummary ? revSummary.added_count : 0}
+            +{revSummary ? revSummary.added_count : '—'}
           </span>
           <span className="text-[10px] font-mono text-[#6B8E78]">New Field Loops</span>
         </div>
         <div className="bg-[#0B1710] border border-[#1E3A2B] rounded-xl p-3.5 flex flex-col justify-between">
           <span className="text-[10px] font-mono text-[#6B8E78]">DELETED SIGNALS</span>
           <span className="text-2xl font-mono font-bold text-red-400 mt-1">
-            -{revSummary ? revSummary.deleted_count : 0}
+            -{revSummary ? revSummary.deleted_count : '—'}
           </span>
           <span className="text-[10px] font-mono text-[#6B8E78]">Decommissioned</span>
         </div>
         <div className="bg-[#0B1710] border border-[#1E3A2B] rounded-xl p-3.5 flex flex-col justify-between">
           <span className="text-[10px] font-mono text-[#6B8E78]">TYPE MODIFICATIONS</span>
           <span className="text-2xl font-mono font-bold text-[#38BDF8] mt-1">
-            {revSummary ? revSummary.changed_count : 0}
+            {revSummary ? revSummary.changed_count : '—'}
           </span>
           <span className="text-[10px] font-mono text-[#6B8E78]">e.g. AI ↔ AO</span>
         </div>
         <div className="bg-[#0B1710] border border-[#1E3A2B] rounded-xl p-3.5 flex flex-col justify-between">
           <span className="text-[10px] font-mono text-[#6B8E78]">UNCHANGED PINNED</span>
           <span className="text-2xl font-mono font-bold text-white mt-1">
-            {revSummary ? revSummary.unchanged_count.toLocaleString() : 0}
+            {revSummary ? revSummary.unchanged_count.toLocaleString() : '—'}
           </span>
           <span className="text-[10px] font-mono text-[#4ADE80]">Exact Slot Retained</span>
         </div>
@@ -95,15 +130,19 @@ export const ScreenRevisionDiff: React.FC<RevisionDiffProps> = ({
           <div className="py-4">
             <div className="text-[11px] font-mono text-[#6B8E78]">MOVED SIGNALS IN HARDWARE</div>
             <div className="text-5xl font-mono font-bold text-[#5CFF7A] tracking-tight mt-1">
-              {revSummary ? revSummary.moves_ours : 26}
+              {revSummary ? revSummary.moves_ours : '—'}
             </div>
             <div className="text-xs font-mono text-[#A7C7B3] mt-2">
-              Only moved signals where adjacent cable expansions strictly forced relocations.
+              {revSummary
+                ? 'Only moved signals where adjacent cable expansions strictly forced relocations.'
+                : 'No revision run yet — upload Rev B and click GENERATE & SOLVE REV B.'}
             </div>
           </div>
 
           <div className="p-3 rounded bg-[#09170E] border border-[#183B23] text-[11px] font-mono text-[#5CFF7A]">
-            ✓ Field termination drawings stay 97.4% valid across project revision.
+            {revSummary
+              ? `Field termination drawings stay ${(100 * revSummary.unchanged_count / Math.max(1, revSummary.unchanged_count + revSummary.moves_ours)).toFixed(1)}% valid across project revision.`
+              : 'Move statistics appear here after a revision run.'}
           </div>
         </div>
 
@@ -122,15 +161,19 @@ export const ScreenRevisionDiff: React.FC<RevisionDiffProps> = ({
           <div className="py-4">
             <div className="text-[11px] font-mono text-[#8F6B6B]">MOVED SIGNALS IN HARDWARE</div>
             <div className="text-5xl font-mono font-bold text-red-400 tracking-tight mt-1">
-              {revSummary ? revSummary.moves_from_scratch : 221}
+              {revSummary ? revSummary.moves_from_scratch : '—'}
             </div>
             <div className="text-xs font-mono text-[#CCA5A5] mt-2">
-              Arbitrary symmetry breaking churns hundreds of untouched field signals!
+              {revSummary
+                ? 'Arbitrary symmetry breaking churns untouched field signals!'
+                : 'The from-scratch baseline is computed live alongside the revision.'}
             </div>
           </div>
 
           <div className="p-3 rounded bg-[#261010] border border-[#4D1B1B] text-[11px] font-mono text-red-300">
-            ✗ Massive engineering rework: 8.5x more wiring modifications required on site.
+            {revSummary && revSummary.moves_ours > 0
+              ? `Engineering rework: ${(revSummary.moves_from_scratch / revSummary.moves_ours).toFixed(1)}x more wiring modifications required on site.`
+              : 'Rework comparison appears here after a revision run.'}
           </div>
         </div>
       </div>
@@ -169,7 +212,15 @@ export const ScreenRevisionDiff: React.FC<RevisionDiffProps> = ({
                     <td className="py-2 px-2.5 text-[#4ADE80]">{m.io_type}</td>
                     <td className="py-2 px-2.5 text-[#6B8E78]">{m.old_location}</td>
                     <td className="py-2 px-2.5 text-amber-300 font-bold">{m.new_location}</td>
-                    <td className="py-2 px-2.5 text-[#A7C7B3]">{m.forcing_rule}</td>
+                    <td className="py-2 px-2.5">
+                      {m.forcing_rule ? (
+                        <span className="px-1.5 py-0.5 rounded bg-[#102B19] text-[#5CFF7A] border border-[#1E4D2C]">
+                          {m.forcing_rule}
+                        </span>
+                      ) : (
+                        <span className="text-[#6B8E78]">rebalance</span>
+                      )}
+                    </td>
                     <td className="py-2 px-2.5 text-[#C4D9CC]">{m.reason}</td>
                   </tr>
                 ))}

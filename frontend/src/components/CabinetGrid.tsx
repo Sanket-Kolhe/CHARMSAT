@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { AllocatedSlot } from '../api';
-import { Filter, Layers, Info, Check, Search } from 'lucide-react';
+import { AllocatedSlot, API } from '../api';
+import { Filter, Layers, Info, Check, Search, HelpCircle, X, ShieldCheck } from 'lucide-react';
 
 interface CabinetGridProps {
   allocations: AllocatedSlot[];
@@ -16,6 +16,19 @@ export const CabinetGrid: React.FC<CabinetGridProps> = ({
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [hoveredSlot, setHoveredSlot] = useState<AllocatedSlot | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [explain, setExplain] = useState<any | null>(null);
+  const [isExplaining, setIsExplaining] = useState<boolean>(false);
+
+  const handleExplain = async (t: string) => {
+    setIsExplaining(true);
+    try {
+      setExplain(await API.explainSignal(t));
+    } catch {
+      setExplain(null);
+    } finally {
+      setIsExplaining(false);
+    }
+  };
 
   // Compute available cabinets
   const cabinetsAvailable = useMemo(() => {
@@ -264,7 +277,11 @@ export const CabinetGrid: React.FC<CabinetGridProps> = ({
                               }
                             }}
                             onMouseLeave={() => setHoveredSlot(null)}
-                            className={`h-6 rounded text-[8px] font-mono flex items-center justify-center cursor-pointer transition-all ${getSlotStyle(
+                            onClick={() => slot && slot.tag && handleExplain(slot.tag)}
+                            title={slot && slot.tag ? `${slot.tag} — click for "why here?"` : undefined}
+                            className={`h-6 rounded text-[8px] font-mono flex items-center justify-center transition-all ${
+                              slot && slot.tag ? 'cursor-help' : 'cursor-default'
+                            } ${getSlotStyle(
                               slot
                             )}`}
                           >
@@ -289,6 +306,58 @@ export const CabinetGrid: React.FC<CabinetGridProps> = ({
         })}
       </div>
 
+      {/* W2: "Why is this signal here?" panel */}
+      {(explain || isExplaining) && (
+        <div className="mt-4 bg-[#08140D] border border-[#4ADE80] rounded-xl p-4 shadow-neon">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-mono font-bold text-[#5CFF7A] flex items-center gap-2">
+              <HelpCircle className="w-4 h-4" />
+              WHY IS THIS SIGNAL HERE?
+            </span>
+            <button onClick={() => setExplain(null)} className="text-[#6B8E78] hover:text-white">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {isExplaining && <div className="text-[11px] font-mono text-[#6B8E78]">Re-deriving rules...</div>}
+          {explain && explain.found && (
+            <div className="space-y-2 text-[11px] font-mono">
+              <div className="text-white">
+                <span className="font-bold text-[#5CFF7A]">{explain.tag}</span>
+                {explain.placed ? (
+                  <>
+                    {' '}is at <span className="text-amber-300">{explain.location}</span>
+                    {' '}as <span className="text-[#38BDF8]">{explain.charm}</span>
+                  </>
+                ) : (
+                  <> is not placed: {explain.reason}</>
+                )}
+              </div>
+              {explain.placed && (
+                <>
+                  <div className="text-[#A7C7B3]">{explain.why_here}</div>
+                  <div className="grid grid-cols-2 gap-1.5 pt-1">
+                    {explain.checks.map((c: any, i: number) => (
+                      <div key={i} className="flex items-start gap-1.5 text-[10px]">
+                        <span className={c.satisfied ? 'text-[#4ADE80]' : 'text-red-400'}>
+                          {c.satisfied ? '✓' : '✗'}
+                        </span>
+                        <span className="text-[#C4D9CC]">
+                          <span className="text-[#5CFF7A] font-bold">{c.rule}</span> {c.detail}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[10px] text-[#6B8E78] pt-1 border-t border-[#163120]">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#4ADE80]" />
+                    Pinned by: {(explain.pinned_by || []).join(', ') || 'optimiser packing only'}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Floating Interactive Tooltip */}
       {hoveredSlot && (
         <div
@@ -312,6 +381,9 @@ export const CabinetGrid: React.FC<CabinetGridProps> = ({
             <div className="col-span-2">LOCATION: <span className="text-white">{hoveredSlot.cabinet_name} CIOC-{hoveredSlot.cioc+1} BP-{hoveredSlot.baseplate+1} Slot-{hoveredSlot.slot+1}</span></div>
             <div className="col-span-2">CHARM: <span className="text-[#38BDF8]">{hoveredSlot.charm}</span></div>
             <div className="col-span-2">TB: <span className="text-[#A6C4B1]">{hoveredSlot.terminal_block}</span></div>
+            <div className="col-span-2 text-[9px] text-[#4ADE80] pt-1 border-t border-[#1E4D2C]">
+              Click for "why is this here?"
+            </div>
           </div>
         </div>
       )}

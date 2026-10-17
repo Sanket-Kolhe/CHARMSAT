@@ -1,58 +1,53 @@
 # CHARMSAT — Empirical Benchmark Report
 **Project:** IO SIGNAL SUDOKU | CODE APEX 3.0 Hackathon (VIT Pune)  
 **Team:** lost_in_the_shine | **Lead:** Prathmesh Vishwakarma  
-**Engine:** OR-Tools CP-SAT + Independent Verification Engine  
+**Engine:** OR-Tools CP-SAT (3-stage) + Independent Verification Engine  
 
 ---
 
-## 1. Executive Summary
+## 1. Measured results (`make bench`, 2026-10-17, commit 4052034)
 
-Every benchmark figure reported below is **measured live** using `python run_bench.py` and re-verified by an independent audit module that re-derives all constraints from scratch without sharing any solver code.
+Machine: 8 CPUs · Python 3.10 · OR-Tools 9.15 · deterministic single-worker
+mode. Every figure below was measured by `scripts/bench.py` in that run
+(raw: `bench/results.csv`, UI: `bench/results.json`).
 
-| Metric | B0 Greedy (File Order) | B1 Greedy (Grouped + A/B) | CHARMSAT (CP-SAT Solver) |
-|---|---|---|---|
-| **Rule Violations** | **865** (Fails Contiguity & A/B) | **6** (Boundary Clipping) | **0 (Zero Violations Verified)** |
-| **Cabinets Used (N=1,000)** | 3 (Illegal Packing) | 4 | **4 (Matches Lower Bound)** |
-| **Cabinet Efficiency vs LB** | Invalid | 1.33x | **1.00x Optimal** |
-| **Rev B Moved Signals (Churn)**| 850 (85.0%) | 420 (42.0%) | **293 (vs 1,187 from-scratch)** |
-| **Runtime (N=1,000)** | 0.011 s | 0.011 s | **1.122 s** (Target < 60 s Met) |
+| Signals (N) | Engine | Violations | Cabinets / LB | Gap | Rev B moves (ours / scratch) | Runtime (s) |
+|---|---|---|---|---|---|---|
+| 1,000 | B0 Greedy (File Order) | 116 | 3 / 4 | -1 | - | 0.01 |
+| 1,000 | B1 Greedy (Grouped + A/B) | 205 | 3 / 4 | -1 | - | 0.03 |
+| 1,000 | **CHARMSAT (3-stage)** | **0** | **4 / 4** | **0** | **24 (2.4%) / 971 (99.1%)** | **0.07** |
+| 5,000 | B0 Greedy (File Order) | 618 | 14 / 19 | -5 | - | 0.05 |
+| 5,000 | B1 Greedy (Grouped + A/B) | 1176 | 15 / 19 | -4 | - | 0.06 |
+| 5,000 | **CHARMSAT (3-stage)** | **0** | **20 / 19** | **1** | **473 (9.7%) / 4641 (94.7%)** | **9.22** |
+| 10,000 | B0 Greedy (File Order) | 1197 | 27 / 38 | -11 | - | 0.11 |
+| 10,000 | B1 Greedy (Grouped + A/B) | 2498 | 28 / 38 | -10 | - | 0.15 |
+| 10,000 | **CHARMSAT (3-stage)** | **0** | **39 / 38** | **1** | **1141 (11.6%) / 8972 (91.6%)** | **8.53** |
 
----
+Reading the table honestly:
 
-## 2. Multi-Scale Empirical Measurements
+- **CHARMSAT: 0 violations at every scale** (independent checker on
+  allocation rows), cabinet count equal to the proven lower bound at 1,000
+  signals and at most 1 above it at 5,000/10,000. Deterministic re-runs
+  matched bit-for-bit in the same run.
+- **B0/B1 "negative gaps" are not wins:** they use fewer cabinets by
+  breaking rules (hundreds to thousands of checker violations: severed
+  cables, mixed A/B trains). Fewer cabinets + violations = illegal packing.
+- **Revisions:** keep-literal Rev B moves 2–12% of unchanged signals vs
+  92–99% for a from-scratch re-solve, both computed live per run.
+- Reproduce: `make bench` (writes `bench/*` with machine/date/commit).
 
-Measurements taken on Windows (AMD/Intel x64, Python 3.13):
+## 2. Method (blueprint §10.6)
 
-| Signals (N) | Algorithm | Violations (Checker) | Cabinets / LB | Churn (Rev B Moves) | Wall-Clock Runtime |
-|:---:|---|:---:|:---:|:---:|:---:|
-| **300** | B0 Greedy (File Order) | 100 | 1 / 1 | 255 | 0.006 s |
-| **300** | B1 Greedy (Grouped + A/B) | 0 | 1 / 1 | 126 | 0.005 s |
-| **300** | **CHARMSAT (CP-SAT)** | **0** | **2 / 1** | **60 (vs 255 scratch)** | **0.180 s** |
-| **1,000** | B0 Greedy (File Order) | 865 | 3 / 3 | 850 | 0.011 s |
-| **1,000** | B1 Greedy (Grouped + A/B) | 6 | 4 / 3 | 420 | 0.011 s |
-| **1,000** | **CHARMSAT (CP-SAT)** | **0** | **4 / 3** | **293 (vs 1,187 scratch)** | **1.122 s** |
-| **2,500** | B0 Greedy (File Order) | 3,014 | 7 / 8 | 2,125 | 0.020 s |
-| **2,500** | B1 Greedy (Grouped + A/B) | 36 | 9 / 8 | 1,050 | 0.017 s |
-| **2,500** | **CHARMSAT (CP-SAT)** | **0** | **10 / 8** | **Min-Move Pinned** | **15.930 s** |
-| **5,000** | B0 Greedy (File Order) | 6,419 | 14 / 15 | 4,250 | 0.041 s |
-| **5,000** | B1 Greedy (Grouped + A/B) | 60 | 15 / 15 | 2,100 | 0.029 s |
-| **5,000** | **CHARMSAT (CP-SAT)** | **0** | **Decomposed** | **Min-Move Pinned** | **16.043 s** |
+Synthetic generator at N ∈ {1k, 5k, 10k} (seed 42, IO mix AI 35 / DI 35 /
+DO 20 / AO 10, cable sizes 24/12/6/2, 35% A/B segregated); baselines B0
+file-order and B1 grouped-greedy (honest: violations and unplaced counts
+reported, moves measured tag-by-tag); from-scratch re-solve baseline for
+revisions. Metrics: checker violations, coverage, cabinets, lower bound,
+gap, Rev B moves (% of unchanged signals), runtime, determinism hash.
 
----
+## 3. Reference prototype results (for orientation, NOT repo claims)
 
-## 3. Analysis & Key Insights
-
-1. **Why Naive Greedy (B0) Fails Completely:**
-   - In file order, multi-pair cables are severed across CIOCs and baseplates.
-   - Train A and Train B signals are placed in adjacent slots on the same CIOC, violating Emerson safety segregation.
-   - At 1,000 signals, B0 accumulates 865 violations.
-
-2. **Why Heuristic Grouping (B1) Is Fragile:**
-   - While B1 is A/B aware, its lack of global lookahead causes fragmentation.
-   - When large cables (12-pair / 24-pair) land late, B1 clips across baseplate boundaries (causing 6 to 60 violations) or is forced to allocate extra cabinets.
-   - On project revisions, B1 re-packs from scratch, causing over 40% wiring churn.
-
-3. **CHARMSAT Mathematical Superiority:**
-   - **Zero Violations:** By formulating the problem as interval packing with CP-SAT `NoOverlap` and modulo alignment constraints, feasibility is mathematically guaranteed.
-   - **Minimum-Move Revisions:** Lexicographic objective prioritizes previous slot retention. Signals that do not need to move remain pinned, preventing site rewiring costs.
-   - **Speed Target:** Solves 1,000 signals in **1.12 s** and 2,500 signals in **15.9 s**, well within the 60-second laptop competition threshold.
+The numbers quoted in the blueprint
+(`CHARMSAT_v2_Blueprint_and_Playbook.md` §1.2) were produced by
+`reference/bench.py` on 15 Oct 2026 (2-vCPU sandbox, Python 3.13,
+OR-Tools 9.15). Raw: `reference/results/*.jsonl`.

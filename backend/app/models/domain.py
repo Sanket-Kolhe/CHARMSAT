@@ -11,6 +11,8 @@ class Signal:
     pair: int = 1
     group: Optional[str] = None
     seg: Optional[str] = None  # 'A' or 'B' or None
+    row_no: int = 0  # original Excel row number (1-based) for TQ provenance
+    extra: Dict[str, str] = field(default_factory=dict)  # unmapped columns, usable by rules
 
 @dataclass
 class Cable:
@@ -58,13 +60,18 @@ class Violation(BaseModel):
     baseplate: Optional[int] = None
     slot: Optional[int] = None
     message: str
+    status: str = "violation"  # violation | waived_by_tq (P2-4)
 
 class TQ(BaseModel):
     id: str
-    kind: str  # 'data' | 'rule_conflict' | 'capacity'
+    kind: str  # 'data' | 'rule_conflict' | 'capacity' | 'hardware'
     items: List[str] = Field(default_factory=list)
     rule_ids: List[str] = Field(default_factory=list)
     message: str
+    tags: List[str] = Field(default_factory=list)  # affected tags (all, never truncated)
+    rows: List[int] = Field(default_factory=list)  # Excel row numbers (1-based)
+    options: List[str] = Field(default_factory=list)  # engineer fix options
+    mus: List[str] = Field(default_factory=list)  # minimal conflicting rule subset (P4-1)
 
 class RevisionMoveDetail(BaseModel):
     tag: str
@@ -101,3 +108,7 @@ class AllocResult(BaseModel):
     lower_bound_cabinets: int = 0
     solver_status: str = "OPTIMAL"
     rev_summary: Optional[RevisionSummary] = None
+    bounds: Dict[str, int] = Field(default_factory=dict)  # lower-bound family (P2-1)
+    empty_bp_per_cabinet: Dict[int, int] = Field(default_factory=dict)  # P2-1
+    required_empty_bp: int = 0  # empty baseplates the spare rule demands (P2-1)
+    waived_count: int = 0  # checker findings explained by an open TQ (P2-4)

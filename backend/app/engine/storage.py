@@ -47,6 +47,17 @@ class StorageEngine:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Per-customer header mapping profiles: remember a confirmed mapping
+            # so the next file from the same customer auto-maps.
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS mapping_profiles (
+                    name TEXT PRIMARY KEY,
+                    signature TEXT NOT NULL,
+                    overrides_json TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            c.execute("CREATE INDEX IF NOT EXISTS idx_mapping_sig ON mapping_profiles (signature)")
             conn.commit()
 
     def save_rule_set(self, name: str, yaml_content: str):
@@ -70,6 +81,52 @@ class StorageEngine:
             c = conn.cursor()
             c.execute("SELECT name FROM rule_sets ORDER BY updated_at DESC")
             return [row[0] for row in c.fetchall()]
+
+    @staticmethod
+    def header_signature(header: List[str]) -> str:
+        """Stable signature for a header row: order-insensitive, case/space-folded."""
+        import hashlib
+        norm = sorted(str(h).strip().lower() for h in header)
+        return hashlib.sha256("|".join(norm).encode("utf-8")).hexdigest()[:16]
+
+    def save_mapping_profile(self, name: str, overrides: Dict[str, Any], signature: str):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT OR REPLACE INTO mapping_profiles (name, signature, overrides_json, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            """, (name, signature, json.dumps(overrides)))
+            conn.commit()
+
+    def get_mapping_profile(self, name: str) -> Optional[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute("SELECT name, signature, overrides_json FROM mapping_profiles WHERE name = ?", (name,))
+            row = c.fetchone()
+            return {"name": row[0], "signature": row[1], "overrides": json.loads(row[2])} if row else None
+
+    def find_mapping_profile_by_signature(self, signature: str) -> Optional[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute("SELECT name, signature, overrides_json FROM mapping_profiles WHERE signature = ? "
+                      "ORDER BY updated_at DESC LIMIT 1", (signature,))
+            row = c.fetchone()
+            return {"name": row[0], "signature": row[1], "overrides": json.loads(row[2])} if row else None
+
+    def list_mapping_profiles(self) -> List[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute("SELECT name, signature, overrides_json, updated_at FROM mapping_profiles "
+                      "ORDER BY updated_at DESC")
+            return [{"name": r[0], "signature": r[1], "overrides": json.loads(r[2]), "updated_at": r[3]}
+                    for r in c.fetchall()]
+
+    def delete_mapping_profile(self, name: str) -> bool:
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute("DELETE FROM mapping_profiles WHERE name = ?", (name,))
+            conn.commit()
+            return c.rowcount > 0
 
     def save_benchmark(self, run_name: str, count: int, engine: str, viols: int, cabs: int, lb: int, moves: int, runtime: float):
         with sqlite3.connect(self.db_path) as conn:

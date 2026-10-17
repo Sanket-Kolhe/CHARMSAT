@@ -11,21 +11,44 @@ export const ScreenRulePanel: React.FC<RulePanelProps> = ({ onRulesChanged }) =>
   const [yamlText, setYamlText] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+  const [saveErrors, setSaveErrors] = useState<string[]>([]);
+  const [schemaErrors, setSchemaErrors] = useState<string[]>([]);
+  const [yamlValid, setYamlValid] = useState<boolean | null>(null);
+  // Which editor the user touched last: the YAML box or the rule cards/form.
+  const [activeEditor, setActiveEditor] = useState<'yaml' | 'form'>('form');
 
   // Natural Language Rule Assistant State
   const [nlInput, setNlInput] = useState<string>('');
   const [nlResult, setNlResult] = useState<any | null>(null);
   const [isParsingNL, setIsParsingNL] = useState<boolean>(false);
+  const [useLlm, setUseLlm] = useState<boolean>(false);
 
   // Generic Rule Form State
   const [newRuleRel, setNewRuleRel] = useState<string>('same');
   const [newRuleAttr, setNewRuleAttr] = useState<string>('group');
   const [newRuleLevel, setNewRuleLevel] = useState<string>('cabinet');
   const [newRuleK, setNewRuleK] = useState<number>(1);
+  const [newRuleClasses, setNewRuleClasses] = useState<string>('');
 
   useEffect(() => {
     fetchRules();
   }, []);
+
+  // Live schema validation of the YAML box (P3): every rule document is checked
+  // against the same JSON Schema the backend enforces.
+  useEffect(() => {
+    if (!yamlText.trim()) return;
+    const handle = setTimeout(async () => {
+      try {
+        const res = await API.validateRules({ yaml: yamlText });
+        setYamlValid(res.ok);
+        setSchemaErrors(res.errors || []);
+      } catch {
+        setYamlValid(null);
+      }
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [yamlText]);
 
   const fetchRules = async () => {
     try {
@@ -39,28 +62,46 @@ export const ScreenRulePanel: React.FC<RulePanelProps> = ({ onRulesChanged }) =>
 
   const handleSave = async () => {
     setIsSaving(true);
+    setSaveErrors([]);
     try {
-      await API.updateRules({ rules, yaml: yamlText });
+      // The editor the user last touched is the source of truth on save.
+      const payload = activeEditor === 'yaml' ? { yaml: yamlText } : { rules };
+      const res = await API.updateRules(payload);
+      setRules(res.rules);
+      setYamlText(res.yaml);
+      setYamlValid(true);
+      setSchemaErrors([]);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
       onRulesChanged();
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      setSaveErrors(err?.schemaErrors || [err?.message || 'Save failed']);
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const applyFormRules = (updated: any) => {
+    setRules(updated);
+    setActiveEditor('form');
+    API.validateRules({ rules: updated })
+      .then((res) => {
+        setYamlValid(res.ok);
+        setSchemaErrors(res.errors || []);
+      })
+      .catch(() => {});
   };
 
   const handleParseNL = async () => {
     if (!nlInput.trim()) return;
     setIsParsingNL(true);
     try {
-      const res = await API.parseNLRule(nlInput);
+      const res = await API.parseNLRule(nlInput, useLlm);
       setNlResult(res);
       if (res.draft && rules) {
         const updated = { ...rules };
         updated.custom_rules = [...(updated.custom_rules || []), res.draft];
-        setRules(updated);
+        applyFormRules(updated);
       }
     } catch (err) {
       console.error(err);
@@ -71,18 +112,23 @@ export const ScreenRulePanel: React.FC<RulePanelProps> = ({ onRulesChanged }) =>
 
   const handleAddCustomRule = () => {
     if (!rules) return;
-    const newRule = {
+    const classes = newRuleClasses
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const newRule: any = {
       id: `RULE-CUSTOM-${(rules.custom_rules?.length || 0) + 1}`,
       name: `Custom: ${newRuleRel} ${newRuleAttr} per ${newRuleLevel}`,
       enabled: true,
       relation: newRuleRel,
       attribute: newRuleAttr,
       level: newRuleLevel,
-      k_value: newRuleK,
       description: `Enforces that all signals with matching ${newRuleAttr} must share the ${newRuleRel} ${newRuleLevel}.`,
     };
+    if (newRuleRel === 'at_most_k') newRule.k_value = newRuleK;
+    if (newRuleRel === 'different' && classes.length) newRule.classes = classes;
     const updated = { ...rules, custom_rules: [...(rules.custom_rules || []), newRule] };
-    setRules(updated);
+    applyFormRules(updated);
   };
 
   if (!rules) {
@@ -122,10 +168,24 @@ export const ScreenRulePanel: React.FC<RulePanelProps> = ({ onRulesChanged }) =>
         </button>
       </div>
 
+      {saveErrors.length > 0 && (
+        <div className="bg-[#2A1210] border border-[#7F1D1D] rounded-xl p-3 text-[11px] font-mono text-[#FCA5A5]">
+          <div className="font-bold flex items-center gap-1.5 mb-1">
+            <AlertTriangle className="w-4 h-4" />
+            RULE SET REJECTED BY SCHEMA — nothing was applied
+          </div>
+          <ul className="list-disc list-inside space-y-0.5">
+            {saveErrors.map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Main Grid: Rule Cards & Live YAML */}
       <div className="grid grid-cols-3 gap-6">
         {/* Left Column: Core Rule Cards (2 Cols) */}
-        <div className="col-span-2 space-y-4">
+        <div className="col-span-2 space-y-4" onClickCapture={() => setActiveEditor('form')}>
           {/* Rule 1: A/B Segregation */}
           <div className="bg-[#0B1710] border border-[#1E3A2B] rounded-xl p-4 shadow-sm space-y-3">
             <div className="flex items-center justify-between">
@@ -340,46 +400,74 @@ export const ScreenRulePanel: React.FC<RulePanelProps> = ({ onRulesChanged }) =>
                 <label className="text-[10px] text-[#6B8E78] block mb-1">Cabinet Pattern</label>
                 <input
                   type="text"
-                  value={rules.naming_patterns.cabinet_pattern}
+                  value={rules.naming_patterns.cabinet}
                   onChange={(e) =>
                     setRules({
                       ...rules,
-                      naming_patterns: { ...rules.naming_patterns, cabinet_pattern: e.target.value },
+                      naming_patterns: { ...rules.naming_patterns, cabinet: e.target.value },
                     })
                   }
                   className="bg-[#0C1A11] border border-[#1E3E2B] rounded px-2.5 py-1 text-white text-xs w-full"
                 />
               </div>
               <div>
-                <label className="text-[10px] text-[#6B8E78] block mb-1">CIOC Format Ambiguity</label>
-                <select
-                  value={rules.naming_patterns.cioc_no_format}
+                <label className="text-[10px] text-[#6B8E78] block mb-1">CIOC Pattern</label>
+                <input
+                  type="text"
+                  value={rules.naming_patterns.cioc}
                   onChange={(e) =>
                     setRules({
                       ...rules,
-                      naming_patterns: { ...rules.naming_patterns, cioc_no_format: e.target.value },
+                      naming_patterns: { ...rules.naming_patterns, cioc: e.target.value },
                     })
                   }
                   className="bg-[#0C1A11] border border-[#1E3E2B] rounded px-2.5 py-1 text-white text-xs w-full"
-                >
-                  <option value="deltav_ar1">DeltaV AR1CIOC (AR1CIOC10101)</option>
-                  <option value="numeric_3digit">Numeric 3-Digit (001-CBP-1)</option>
-                  <option value="hierarchical">Hierarchical (CAB-01-C01)</option>
-                </select>
+                />
               </div>
               <div>
                 <label className="text-[10px] text-[#6B8E78] block mb-1">Baseplate Pattern</label>
                 <input
                   type="text"
-                  value={rules.naming_patterns.baseplate_pattern}
+                  value={rules.naming_patterns.baseplate}
                   onChange={(e) =>
                     setRules({
                       ...rules,
-                      naming_patterns: { ...rules.naming_patterns, baseplate_pattern: e.target.value },
+                      naming_patterns: { ...rules.naming_patterns, baseplate: e.target.value },
                     })
                   }
                   className="bg-[#0C1A11] border border-[#1E3E2B] rounded px-2.5 py-1 text-white text-xs w-full"
                 />
+              </div>
+              <div>
+                <label className="text-[10px] text-[#6B8E78] block mb-1">CHARM Pattern</label>
+                <input
+                  type="text"
+                  value={rules.naming_patterns.charm}
+                  onChange={(e) =>
+                    setRules({
+                      ...rules,
+                      naming_patterns: { ...rules.naming_patterns, charm: e.target.value },
+                    })
+                  }
+                  className="bg-[#0C1A11] border border-[#1E3E2B] rounded px-2.5 py-1 text-white text-xs w-full"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-[#6B8E78] block mb-1">Area</label>
+                <input
+                  type="text"
+                  value={rules.naming_patterns.area}
+                  onChange={(e) =>
+                    setRules({
+                      ...rules,
+                      naming_patterns: { ...rules.naming_patterns, area: e.target.value },
+                    })
+                  }
+                  className="bg-[#0C1A11] border border-[#1E3E2B] rounded px-2.5 py-1 text-white text-xs w-full"
+                />
+              </div>
+              <div className="text-[10px] text-[#6B8E78] self-end">
+                Tokens: area, cab, cioc, cioc_global, bp, bp_global, slot, cab_name, cioc_name, baseplate_name
               </div>
             </div>
           </div>
@@ -437,6 +525,34 @@ export const ScreenRulePanel: React.FC<RulePanelProps> = ({ onRulesChanged }) =>
                 </button>
               </div>
             </div>
+            <div className="grid grid-cols-4 gap-3 text-xs font-mono">
+              <div>
+                <label className="text-[10px] text-[#6B8E78] block mb-1">
+                  K (for AT MOST K)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={newRuleK}
+                  disabled={newRuleRel !== 'at_most_k'}
+                  onChange={(e) => setNewRuleK(Number(e.target.value))}
+                  className="bg-[#0C1A11] border border-[#1E3E2B] rounded px-2 py-1 text-white w-full disabled:opacity-40"
+                />
+              </div>
+              <div className="col-span-3">
+                <label className="text-[10px] text-[#6B8E78] block mb-1">
+                  Classes for DIFFERENT (comma-separated; blank = every value must differ)
+                </label>
+                <input
+                  type="text"
+                  value={newRuleClasses}
+                  disabled={newRuleRel !== 'different'}
+                  placeholder="e.g. A,B"
+                  onChange={(e) => setNewRuleClasses(e.target.value)}
+                  className="bg-[#0C1A11] border border-[#1E3E2B] rounded px-2 py-1 text-white w-full disabled:opacity-40"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -455,6 +571,21 @@ export const ScreenRulePanel: React.FC<RulePanelProps> = ({ onRulesChanged }) =>
             <p className="text-[11px] font-mono text-[#6B8E78]">
               Type an industrial requirement in plain English. The assistant drafts a typed rule configuration.
             </p>
+            <label className="flex items-start gap-2 cursor-pointer text-[10px] font-mono">
+              <input
+                type="checkbox"
+                checked={useLlm}
+                onChange={(e) => setUseLlm(e.target.checked)}
+                className="accent-[#38BDF8] w-3.5 h-3.5 rounded mt-0.5"
+              />
+              <span className="text-[#A7C7B3]">
+                Use optional LLM drafter for messy/ambiguous sentences
+                <span className="block text-[#587B64]">
+                  Off by default. Needs an API key; sends only this sentence, never IO data. Drafts are
+                  schema-checked and confirmed by you.
+                </span>
+              </span>
+            </label>
             <div className="space-y-2">
               <textarea
                 value={nlInput}
@@ -472,8 +603,32 @@ export const ScreenRulePanel: React.FC<RulePanelProps> = ({ onRulesChanged }) =>
             </div>
             {nlResult && (
               <div className="p-2.5 rounded bg-[#0A1810] border border-[#1E4D2C] text-[10px] font-mono text-[#A7C7B3] space-y-1">
-                <div className="text-[#5CFF7A] font-bold">✓ Rule Compiled</div>
+                <div className={nlResult.schema_ok ? 'text-[#5CFF7A] font-bold' : 'text-[#FCA5A5] font-bold'}>
+                  {nlResult.schema_ok ? '✓ Draft added — schema-valid' : '✗ Draft failed schema validation'}
+                </div>
+                <div className="flex items-center gap-2 text-[9px]">
+                  <span className={`px-1.5 py-0.5 rounded border ${
+                    nlResult.source === 'llm'
+                      ? 'bg-[#0E2A18] text-[#7DD3FC] border-[#2A5A6B]'
+                      : 'bg-[#102B19] text-[#4ADE80] border-[#1E4D2C]'
+                  }`}>
+                    {nlResult.source === 'llm' ? 'LLM DRAFT (non-reproducible)' : 'OFFLINE PARSER'}
+                  </span>
+                  {typeof nlResult.confidence === 'number' && (
+                    <span className="text-[#587B64]">confidence {Math.round(nlResult.confidence * 100)}%</span>
+                  )}
+                </div>
                 <div>{nlResult.message}</div>
+                {nlResult.schema_errors?.length > 0 && (
+                  <ul className="list-disc list-inside text-[#FCA5A5]">
+                    {nlResult.schema_errors.map((e: string, i: number) => (
+                      <li key={i}>{e}</li>
+                    ))}
+                  </ul>
+                )}
+                <div className="text-[#587B64]">
+                  Review on the left, then SAVE to apply. The assistant never places signals.
+                </div>
               </div>
             )}
           </div>
@@ -485,11 +640,41 @@ export const ScreenRulePanel: React.FC<RulePanelProps> = ({ onRulesChanged }) =>
                 <Code className="w-3.5 h-3.5 text-[#4ADE80]" />
                 LIVE YAML RULE SPEC
               </span>
-              <span className="text-[10px] font-mono text-[#587B64]">Pydantic Schema</span>
+              <span className="text-[10px] font-mono text-[#587B64]">JSON Schema enforced</span>
             </div>
+            <div
+              className={`p-1.5 rounded border text-[10px] font-mono flex items-center gap-1.5 ${
+                yamlValid === false
+                  ? 'bg-[#2A1210] border-[#7F1D1D] text-[#FCA5A5]'
+                  : 'bg-[#0A1810] border-[#1E4D2C] text-[#5CFF7A]'
+              }`}
+            >
+              {yamlValid === false ? (
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              ) : (
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+              )}
+              <span>
+                {yamlValid === false
+                  ? `SCHEMA REJECTED — ${schemaErrors.length} error(s)`
+                  : yamlValid === true
+                  ? 'SCHEMA VALID — compiles to CP-SAT constraints'
+                  : 'SCHEMA STATUS — awaiting validation'}
+              </span>
+            </div>
+            {yamlValid === false && (
+              <ul className="max-h-24 overflow-y-auto text-[10px] font-mono text-[#FCA5A5] space-y-0.5 list-disc list-inside">
+                {schemaErrors.map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+              </ul>
+            )}
             <textarea
               value={yamlText}
-              onChange={(e) => setYamlText(e.target.value)}
+              onChange={(e) => {
+                setYamlText(e.target.value);
+                setActiveEditor('yaml');
+              }}
               className="flex-1 w-full bg-[#060D08] border border-[#163120] rounded-lg p-2.5 text-[10px] font-mono text-[#5CFF7A] focus:outline-none focus:border-[#4ADE80] resize-none"
             />
           </div>

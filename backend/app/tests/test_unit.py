@@ -6,10 +6,25 @@ from hypothesis import given, settings, strategies as st
 from app.models.rules import RuleSetConfig
 from app.models.domain import Signal
 from app.engine.generator import SyntheticGenerator
-from app.engine.solver import CharmsatSolver
-from app.engine.checker import IndependentChecker
 from app.engine.validator import DataValidator
 from app.engine.mapper import ColumnAutoMapper
+from app.engine.solve.engine import solve_allocation
+from app.engine.solve.bridge import rules_to_ref
+from app.engine.hardware import HW_TABLE
+import checker.check as checker_pkg
+from app.engine.io.template_writer import rows_from_allocations
+
+
+def _io_rows(signals):
+    return [{"tag": s.tag, "io_type": s.io_type, "subtype": s.subtype or "",
+             "cable": s.cable, "pair": s.pair, "group": s.group or "",
+             "seg": s.seg or ""} for s in signals]
+
+
+def _check_alloc(signals, allocations, sizes, rules):
+    rows = rows_from_allocations(allocations)
+    return checker_pkg.check(_io_rows(signals), rows, rules_to_ref(rules),
+                             HW_TABLE, sizes)
 
 def test_generator_structure():
     gen = SyntheticGenerator(seed=123)
@@ -28,66 +43,84 @@ def test_independent_checker_zero_violations_on_valid_allocation():
     cable_sizes = {c["cable_id"]: c["size"] for c in cables_info}
 
     rules = RuleSetConfig()
-    solver = CharmsatSolver(rules)
-    result = solver.solve(signals, cable_sizes)
+    valid, _, _ = DataValidator().validate(signals, cable_sizes)
+    result, _, _ = solve_allocation(valid, cable_sizes, rules)
 
     assert result.success is True
     assert len(result.violations) == 0
 
-    # Verify directly with independent checker
-    checker = IndependentChecker(rules)
-    audit_violations = checker.verify(result.allocations, signals)
-    assert len(audit_violations) == 0
+    # Verify directly with the independent checker package
+    found = _check_alloc(valid, result.allocations, cable_sizes, rules)
+    assert [v for v in found if v["status"] == "violation"] == []
 
 def test_hand_planted_violation_caught():
     gen = SyntheticGenerator(seed=99)
-    signals, cables_info = gen.generate_dataset(n_signals=250)
+    signals, cables_info = gen.generate_dataset(n_signals=400)
     cable_sizes = {c["cable_id"]: c["size"] for c in cables_info}
 
     rules = RuleSetConfig()
-    solver = CharmsatSolver(rules)
-    result = solver.solve(signals, cable_sizes)
+    valid, _, _ = DataValidator().validate(signals, cable_sizes)
+    result, _, _ = solve_allocation(valid, cable_sizes, rules)
     assert result.success is True
+    signals = valid
 
-    checker = IndependentChecker(rules)
-    
-    # 1. Plant A/B leak
-    planted_ab = checker.plant_violation(result.allocations, "ab_leak")
-    viols_ab = checker.verify(planted_ab)
-    assert len(viols_ab) > 0
-    assert any(v.rule_id == rules.ab_segregation.id for v in viols_ab)
+    # Workbook-level plants via the checker package (in-memory rows here).
+    rows = rows_from_allocations(result.allocations)
+    seg_of = {s.tag: (s.seg or "") for s in signals}
+    # 1. Plant A/B leak: move a row's allocation into a CIOC of the other train.
+    units = {}
+    for r in rows:
+        if r["tag"]:
+            units.setdefault((r["cabinet"], r["cioc"]), set()).add(seg_of[r["tag"]])
+    leaked = [dict(r) for r in rows]
+    has_a = any("A" in v and "B" not in v for v in units.values())
+    pure_b = next((k for k, v in units.items() if "B" in v and "A" not in v), None)
+    if has_a and pure_b is not None:
+        victim = next(r for r in leaked if r["tag"] and seg_of[r["tag"]] == "A")
+        victim["cabinet"], victim["cioc"] = pure_b
+    else:
+        pure_a = next(k for k, v in units.items() if "A" in v and "B" not in v)
+        victim = next(r for r in leaked if r["tag"] and seg_of[r["tag"]] == "B")
+        victim["cabinet"], victim["cioc"] = pure_a
+    found = checker_pkg.check(_io_rows(signals), leaked, rules_to_ref(rules),
+                              HW_TABLE, cable_sizes)
+    assert any(v["rule"] == rules.ab_segregation.id and v["status"] == "violation"
+               for v in found)
 
-    # 2. Plant Split Cable
-    planted_split = checker.plant_violation(result.allocations, "split_cable")
-    viols_split = checker.verify(planted_split)
-    assert len(viols_split) > 0
-    assert any(v.rule_id == rules.cable_contiguity.id for v in viols_split)
+    # 2. Plant split cable: shift one pair off contiguity.
+    split = [dict(r) for r in rows]
+    by_cable = {}
+    for r in split:
+        by_cable.setdefault(r["cable"], []).append(r)
+    cid = next(c for c, m in by_cable.items() if len(m) > 2)
+    by_cable[cid][1]["slot"] = (by_cable[cid][1]["slot"] % 12) + 1
+    found2 = checker_pkg.check(_io_rows(signals), split, rules_to_ref(rules),
+                               HW_TABLE, cable_sizes)
+    assert any(v["rule"] == "CABLE" and v["status"] == "violation" for v in found2)
 
 def test_determinism_same_seed_gives_identical_output():
-    rules = RuleSetConfig()
-    
-    # Run 1
-    gen1 = SyntheticGenerator(seed=555)
-    sig1, c_info1 = gen1.generate_dataset(n_signals=300)
-    c_sizes1 = {c["cable_id"]: c["size"] for c in c_info1}
-    solv1 = CharmsatSolver(rules)
-    res1 = solv1.solve(sig1, c_sizes1)
+    """Same seed + same rules => identical allocation hash in TWO SEPARATE
+    processes (P1-5). An in-process comparison cannot catch multi-worker or
+    wall-clock non-determinism."""
+    import subprocess
+    import sys
+    prog = (
+        "import sys, json, hashlib; sys.path.insert(0, 'backend');"
+        "from app.models.rules import RuleSetConfig;"
+        "from app.engine.generator import SyntheticGenerator;"
+        "from app.engine.solve.engine import solve_allocation;"
+        "gen = SyntheticGenerator(seed=555);"
+        "sig, c_info = gen.generate_dataset(n_signals=300);"
+        "c_sizes = {c['cable_id']: c['size'] for c in c_info};"
+        "res, _, _ = solve_allocation(sig, c_sizes, RuleSetConfig());"
+        "print(hashlib.sha256(json.dumps([a.model_dump() for a in res.allocations], sort_keys=True).encode()).hexdigest())"
+    )
+    hashes = []
+    for _ in range(2):
+        out = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True, check=True)
+        hashes.append(out.stdout.strip())
 
-    # Run 2
-    gen2 = SyntheticGenerator(seed=555)
-    sig2, c_info2 = gen2.generate_dataset(n_signals=300)
-    c_sizes2 = {c["cable_id"]: c["size"] for c in c_info2}
-    solv2 = CharmsatSolver(rules)
-    res2 = solv2.solve(sig2, c_sizes2)
-
-    # Serialize allocations and compare sha256 hash
-    json1 = json.dumps([a.model_dump() for a in res1.allocations], sort_keys=True)
-    json2 = json.dumps([a.model_dump() for a in res2.allocations], sort_keys=True)
-
-    hash1 = hashlib.sha256(json1.encode()).hexdigest()
-    hash2 = hashlib.sha256(json2.encode()).hexdigest()
-
-    assert hash1 == hash2, "Allocations must be strictly deterministic given the same seed and input"
+    assert hashes[0] == hashes[1], "Allocations must be strictly deterministic given the same seed and input"
 
 def test_data_validator_tq_generation():
     validator = DataValidator(spare_pct=10.0)
@@ -98,13 +131,16 @@ def test_data_validator_tq_generation():
         Signal(tag="TAG-3", io_type="DI", cable="CBL-2", pair=99), # pair overflow
     ]
     cable_sizes = {"CBL-1": 12, "CBL-2": 6}
-    valid, tqs = validator.validate(bad_signals, cable_sizes)
+    valid, tqs, ledger = validator.validate(bad_signals, cable_sizes)
 
     assert len(tqs) >= 3
     tq_ids = {t.id for t in tqs}
     assert "TQ-DAT-01" in tq_ids  # blank type
-    assert "TQ-DAT-02" in tq_ids  # duplicate tag
-    assert "TQ-DAT-03" in tq_ids  # pair overflow
+    assert "TQ-DUP-TAG-2" in tq_ids  # duplicate tag
+    assert "TQ-PAIR-CBL-2" in tq_ids  # pair overflow
+    # Ledger covers every input row
+    assert set(ledger) == {"TAG-1", "TAG-2", "TAG-3"}
+    assert ledger["TAG-2"].startswith("held:")
 
 def test_fuzzy_column_mapper():
     mapper = ColumnAutoMapper()
@@ -129,10 +165,10 @@ def test_hypothesis_zero_violations_property(n_signals, seed):
     cable_sizes = {c["cable_id"]: c["size"] for c in cables_info}
 
     rules = RuleSetConfig()
-    solver = CharmsatSolver(rules)
-    result = solver.solve(signals, cable_sizes)
+    valid, _, _ = DataValidator().validate(signals, cable_sizes)
+    result, _, _ = solve_allocation(valid, cable_sizes, rules)
 
     assert result.success is True
-    checker = IndependentChecker(rules)
-    violations = checker.verify(result.allocations, signals)
-    assert len(violations) == 0, f"Hypothesis property failed: found {len(violations)} violations on seed {seed}"
+    found = _check_alloc(valid, result.allocations, cable_sizes, rules)
+    assert [v for v in found if v["status"] == "violation"] == [], \
+        f"Hypothesis property failed on seed {seed}"

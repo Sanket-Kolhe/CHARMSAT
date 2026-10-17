@@ -40,9 +40,9 @@
 ### [1:35 – 2:05] Step 3: Physical DeltaV Cabinet Grid & KPIs (Screen 3)
 - **Action:** Navigate to `Screen 3: Allocation Grid`.
 - **Showcase:**
-  - **KPI Cards:** Point to `1,000 SIGNALS PLACED (100% COVERAGE)`, `0 VIOLATIONS`, `4 / 4 CABINETS (1.00x Optimal LB)`, `16.9% SPARE`, `RUNTIME 1.37 s`.
+  - **KPI Cards:** Read the LIVE values — signals placed + held-by-TQ (= coverage), checker violations, cabinets / lower bound / gap, empty baseplates per cabinet vs required, runtime, solver status. (If a card shows an empty state, say so — never invent a number.)
   - **Physical Layout:** Explain the 4 CIOCs per cabinet, 8 baseplates per CIOC, 12 CHARMs per baseplate (384 slots/cabinet).
-  - Hover over a slot: show the interactive tooltip displaying `Tag`, `Cable`, `Pair`, `CHARM Model (AI 4-20mA HART)`, and `Terminal Block`.
+  - Hover over a slot: show the interactive tooltip displaying `Tag`, `Cable`, `Pair`, `CHARM Model`, and `Terminal Block`.
   - Point out the **TRAIN A (Cyan)** and **TRAIN B (Amber)** segregation badges on CIOC headers.
 
 ---
@@ -53,7 +53,7 @@
   - Point to the glowing green badge: **"0 VIOLATIONS — CLEAN AUDIT // VERIFIED"**.
   - Explain: *"Judges might ask: does your checker just share your solver's bugs? No. It is an independent module with zero shared code."*
   - **The Hook:** Click **"Plant A/B Leak"**!
-  - The screen flashes red with **36 VIOLATIONS CAUGHT**. Point to the exact offending row highlighted in red where an A signal was leaked into a B CIOC.
+  - The screen flashes red with the violations the checker caught (live count — point to it). Point to the exact offending row highlighted in red where an A signal was leaked into a B CIOC.
   - Click **"Reset to Clean"** to return to 0 violations.
 
 ---
@@ -62,30 +62,24 @@
 - **Action:** Navigate to `Screen 5: Technical Queries (TQs)`.
 - **Action:** Click **"LOAD ADVERSARIAL CONFLICT FILE"**.
 - **Showcase:**
-  - Explain: *"When real-world data is contradictory, CHARMSAT never crashes or silently drops signals. It isolates the Minimal Unsatisfiable Subset (MUS)."*
-  - Expand `TQ-RUL-UNSAT-01`: show the plain-English explanation: *"Cable CBL-105 carries both Train A and Train B signals: Rule 1 (A/B Segregation) and Rule 2 (Cable Contiguity) conflict."*
+  - Explain: *"When real-world data is contradictory, CHARMSAT never crashes or silently drops signals. It raises a TQ naming the conflicting rules and the minimal set that cannot all hold (the MUS)."*
+  - Expand the conflict TQ: show the plain-English explanation naming the cable, the rules, and the fix options.
 
 ---
 
 ### [2:50 – 3:15] Step 6: Minimum-Move Revision B (Screen 6)
 - **Action:** Click **"DEMO MODE"** to reset, then navigate to `Screen 6: Revision Diff`.
 - **Showcase:**
-  - Point to the huge numbers:
-    - **OURS (Min-Move Engine): 26 Moves**
-    - **From-Scratch Re-solve: 221 Moves**
-  - Highlight: *"Because our solver treats Rev A as soft hints with a heavy move penalty, 97.4% of field terminations remain untouched. This saves hundreds of thousands of dollars in site rewiring costs."*
-  - Scroll down to the cabinet grid: point to the few relocated slots pulsing in **neon amber**.
+  - Point to the live numbers: **OURS (keep-literal revision)** vs **from-scratch re-solve** moves, both computed in the run. Read the ratio aloud from the screen — do not quote a rehearsed figure.
+  - Highlight: *"Because our solver treats Rev A as soft hints with a move penalty, field terminations stay valid unless a rule forces a move — and each move names its forcing rule."*
+  - Scroll down to the cabinet grid: point to the relocated slots pulsing in **neon amber**.
 
 ---
 
 ### [3:15 – 3:35] Step 7: Empirical Benchmarks (Screen 7)
 - **Action:** Navigate to `Screen 7: Benchmarks`.
-- **Showcase:**
-  - Live measurements against rivals:
-    - **B0 Greedy (File Order):** 865 violations (fails completely).
-    - **B1 Greedy (Grouped + A/B):** 6 violations, 420 revision moves (high churn).
-    - **CHARMSAT (CP-SAT):** **0 violations**, **1.00x lower bound efficiency**, **1.12 s runtime**.
-  - Show the runtime-vs-N line chart proving scale well under 60 seconds at 10,000 signals.
+- **Pre-flight:** run `make bench` before the slot and confirm the table is populated. If the screen shows "No benchmark run yet", say so and run it live (or show the pre-run) — never quote remembered numbers.
+- **Showcase:** Read the live table aloud: B0 violations, B1 violations + moves, CHARMSAT violations + cabinets/lower bound/gap + runtime. Point to `bench/results.md` + `meta.json` (machine, date, commit) as the source judges can re-run.
 
 ---
 
@@ -99,3 +93,27 @@
 
 ### [3:50 – 4:00] Conclusion
 - *"In summary: CHARMSAT gives EPCs and plant owners guaranteed zero-violation allocations, plain-English TQs, and minimum-move revisions that prevent physical rewiring. Thank you!"*
+
+---
+
+## Optional WOW detours (if time allows)
+
+- **Live-added rule (Screen 2):** add a custom rule in the panel (relation /
+  attribute / level / k / classes), watch the YAML box and the schema badge.
+  Type a typo in the YAML box → the badge turns red with the schema errors and
+  SAVE is refused. Fix it, SAVE, and the allocation re-solves with the new
+  rule — no code change.
+- **Rule assistant (Screen 2):** type *"keep each group on one cabinet"* →
+  the offline assistant drafts a typed rule (schema-validated, human-confirm).
+  Stress: it only drafts wording; it never receives IO rows or places signals.
+  Each draft shows its provenance badge (OFFLINE PARSER). Only if an API key is
+  configured can you tick *"Use optional LLM drafter"* for a messy sentence — the
+  badge then says LLM DRAFT (non-reproducible) and the draft still must pass the
+  schema and be confirmed by you. Default demo path needs no key and no network.
+- **What-if (Screen 3):** add one signal or drop the spare margin → the panel
+  recomputes cabinets/coverage live and states plainly it did not commit.
+- **Why is this here (Screen 3):** click any CHARM → the explainer re-derives
+  the rules that slot satisfies and which rule pins it.
+- **Mapping profile (Screen 1):** name and save the mapping, then confirm a
+  second file with the same headers — it reuses the saved profile.
+
